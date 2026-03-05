@@ -1,0 +1,170 @@
+﻿@page "/game"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@inject IJSRuntime JS
+@using Microsoft.AspNetCore.Components.Web
+@using TowerDefenseBlazor.Models
+@implements IDisposable
+
+<div style="position: fixed; inset: 0; margin: 0; padding: 0;
+            background: @(game.Lives <= 0 ? "rgba(0,0,0,0.7)" : "#000");
+            color: white; overflow: hidden; z-index: 9999;">
+
+    <div style="padding: 20px; max-width: 960px; margin: 0 auto; position: relative; height: 100%;">
+        <h3>Tower Defense</h3>
+
+        <div style="border: 4px solid #555; width: 920px; height: 620px; margin: 20px auto; background: #111; position: relative;">
+            <canvas @ref="canvasRef" width="900" height="600"
+                    style="display: block; cursor: crosshair;"
+                    @onmousedown="HandleMouseDown"></canvas>
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button disabled="@(game.Lives <= 0)" @onclick="() => SelectedTower = nameof(BowTower)">Лук (50$)</button>
+            <button disabled="@(game.Lives <= 0)" @onclick="() => SelectedTower = nameof(FireTower)">Огонь (100$)</button>
+            <button disabled="@(game.Lives <= 0)" @onclick="() => SelectedTower = nameof(PoisonTower)">Яд (80$)</button>
+            <button disabled="@(game.Lives <= 0 || WaveInProgress || game.Enemies.Any())"@onclick="StartNewWave">Начать волну</button>
+        </div>
+
+        @if (game.Lives <= 0)
+        {
+            <div style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 1000; pointer-events: auto;">
+                <div style="background: rgba(0,0,0,0.92); color: #ff4444; padding: 50px 70px; border-radius: 16px;
+                                text-align: center; border: 3px solid #ff4444; min-width: 420px; max-width: 600px;
+                                box-shadow: 0 0 40px rgba(255,68,68,0.6);">
+                    <h2 style="margin: 0 0 24px 0; color: white; font-size: 2.8rem;">Игра окончена</h2>
+                    <p style="margin: 0 0 40px 0; color: #ffcc00; font-size: 1.8rem;">
+                        Достигнутая волна: @game.Wave
+                    </p>
+                    <button @onclick="RestartGame"
+                            style="padding: 16px 70px; font-size: 1.6rem; background: #4CAF50; color: white;
+                                       border: none; border-radius: 10px; cursor: pointer; transition: all 0.25s; box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
+                        Начать заново
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool WaveInProgress { get; set; } = false;
+    private ElementReference canvasRef;
+    private GameState game = new();
+    private string? SelectedTower;
+    private bool gameRunning = true;
+    private DotNetObjectReference<Game>? dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("initCanvas", canvasRef, dotNetRef);
+            _ = GameLoop();
+        }
+    }
+
+    private async Task GameLoop()
+    {
+        while (gameRunning)
+        {
+            game.Update(0.016f);
+
+            if (game.Lives <= 0)
+            {
+                gameRunning = false;
+                await Draw();
+                StateHasChanged();
+                break;
+            }
+
+            // Проверка завершения волны
+            if (WaveInProgress && !game.Enemies.Any())
+            {
+                WaveInProgress = false;
+                StateHasChanged();
+            }
+
+            await Draw();
+            await Task.Delay(16);
+        }
+    }
+
+    private async Task Draw()
+    {
+        await JS.InvokeVoidAsync("drawGame", canvasRef,
+            game.Path.Select(p => new { x = p.X, y = p.Y }).ToArray(),
+            game.Enemies.Select(e => new { x = e.X, y = e.Y, color = e.Color }).ToArray(),
+            game.Towers.Select(t => new { x = t.X, y = t.Y, color = t.Color }).ToArray(),
+            game.Projectiles.Select(p => new { x = p.X, y = p.Y }).ToArray(),
+            game.Gold, game.Lives, game.Wave);
+    }
+
+    private async Task HandleMouseDown(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        if (string.IsNullOrEmpty(SelectedTower) || game.Lives <= 0) return;
+
+        var rect = await JS.InvokeAsync<BoundingClientRect>("getCanvasRect", canvasRef);
+        float mx = (float)e.ClientX - (float)rect.Left;
+        float my = (float)e.ClientY - (float)rect.Top;
+
+        bool onPath = false;
+        for (int i = 0; i < game.Path.Length - 1; i++)
+        {
+            var p = game.Path[i];
+            if (MathF.Abs(mx - p.X) < 60 && MathF.Abs(my - p.Y) < 60)
+            {
+                onPath = true;
+                break;
+            }
+        }
+        if (onPath) return;
+
+        Tower? newTower = SelectedTower switch
+        {
+            nameof(BowTower) when game.Gold >= 50 => new BowTower(mx, my),
+            nameof(FireTower) when game.Gold >= 100 => new FireTower(mx, my),
+            nameof(PoisonTower) when game.Gold >= 80 => new PoisonTower(mx, my),
+            _ => null
+        };
+
+        if (newTower != null)
+        {
+            game.Gold -= newTower.Cost;
+            game.Towers.Add(newTower);
+            StateHasChanged();
+        }
+    }
+
+    private void StartNewWave()
+    {
+        if (WaveInProgress || game.Enemies.Any()) return;
+
+        WaveInProgress = true;
+        game.SpawnWave();
+        StateHasChanged();
+    }
+
+    private void RestartGame()
+    {
+        game = new GameState();
+        gameRunning = true;
+        SelectedTower = null;
+        dotNetRef?.Dispose();
+        dotNetRef = DotNetObjectReference.Create(this);
+        _ = JS.InvokeVoidAsync("initCanvas", canvasRef, dotNetRef);
+        _ = GameLoop();
+        StateHasChanged();
+    }
+
+    public class BoundingClientRect
+    {
+        public double Left { get; set; }
+        public double Top { get; set; }
+    }
+
+    public void Dispose()
+    {
+        dotNetRef?.Dispose();
+    }
+}

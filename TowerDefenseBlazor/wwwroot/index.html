@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TowerDefenseBlazor</title>
+    <base href="/" />
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="TowerDefenseBlazor.styles.css" rel="stylesheet" />
+</head>
+<script>
+    let canvas, ctx, dotNetHelper;
+
+    window.initCanvas = (canvasElement, dotNetObj) => {
+        canvas = canvasElement;
+        ctx = canvas.getContext('2d');
+        dotNetHelper = dotNetObj;
+        console.log("Canvas initialized!");
+    };
+
+    window.getCanvasRect = () => {
+        return canvas.getBoundingClientRect();
+    };
+
+    window.drawGame = (canvasElement, path, enemies, towers, projectiles, gold, lives, wave) => {
+        if (!ctx) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Путь (серый)
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) {
+            ctx.lineTo(path[i].x, path[i].y);
+        }
+        ctx.strokeStyle = 'gray';
+        ctx.lineWidth = 40;
+        ctx.stroke();
+
+        // Враги
+        enemies.forEach(e => {
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, 15, 0, 2 * Math.PI);
+            ctx.fillStyle = e.color;
+            ctx.fill();
+        });
+
+        // Башни
+        towers.forEach(t => {
+            ctx.fillStyle = t.color;
+            ctx.fillRect(t.x - 20, t.y - 20, 40, 40);
+        });
+
+        // Снаряды
+        ctx.fillStyle = 'yellow';
+        projectiles.forEach(p => {
+            ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+        });
+
+        // Можно добавить текст на canvas, если хочешь
+        ctx.fillStyle = 'white';
+        ctx.font = '16px Arial';
+        ctx.fillText(`Gold: ${gold} | Lives: ${lives} | Wave: ${wave}`, 10, 30);
+    };
+</script>
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_content/Blazor.Extensions.Canvas/blazor.extensions.canvas.js"></script>
+</body>
+
+</html>
