@@ -1,7 +1,9 @@
 ﻿@page "/game"
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 @inject IJSRuntime JS
+@inject ILeaderboardService LeaderboardService
 @using Microsoft.AspNetCore.Components.Web
+@using TowerDefenseBlazor.Services
 @using TowerDefenseBlazor.Models
 @implements IDisposable
 
@@ -27,17 +29,83 @@
 
         @if (game.Lives <= 0)
         {
-            <div style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 1000; pointer-events: auto;">
+            <div style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+                        z-index: 1000; pointer-events: auto; background: rgba(0,0,0,0.6);">
                 <div style="background: rgba(0,0,0,0.92); color: #ff4444; padding: 50px 70px; border-radius: 16px;
-                                text-align: center; border: 3px solid #ff4444; min-width: 420px; max-width: 600px;
-                                box-shadow: 0 0 40px rgba(255,68,68,0.6);">
+                            text-align: center; border: 3px solid #ff4444; min-width: 420px; max-width: 600px;
+                            box-shadow: 0 0 40px rgba(255,68,68,0.6);">
                     <h2 style="margin: 0 0 24px 0; color: white; font-size: 2.8rem;">Игра окончена</h2>
-                    <p style="margin: 0 0 40px 0; color: #ffcc00; font-size: 1.8rem;">
+
+                    <p style="margin: 0 0 16px 0; font-size: 1.2rem; color: gold;">
+                        Рекорд: волна @HighScoreWave
+                    </p>
+
+                    <p style="margin: 0 0 20px 0; color: #ffcc00; font-size: 1.8rem;">
                         Достигнутая волна: @game.Wave
                     </p>
+
+                    @if (!scoreSubmitted)
+                    {
+                        <div style="margin: 30px 0;">
+                            <p style="color: white; margin-bottom: 15px;"> Сохранить рекорд?</p>
+                            <input @bind="playerName" placeholder="Ваше имя (макс. 20 симв.)" maxlength="20"
+                                   style="padding: 12px; width: 280px; font-size: 1.1rem; border-radius: 6px; border: 2px solid #555;" />
+                            <br />
+                            <button @onclick="SubmitScore"
+                                disabled="@string.IsNullOrWhiteSpace(playerName)"
+                                style="margin-top: 15px; padding: 12px 40px; font-size: 1.2rem;
+                                    background: #4CAF50; color: white; border: none;
+                                    border-radius: 8px; cursor: pointer;">
+                                Отправить в лидерборд
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <p style="color: #4CAF50; margin: 20px 0; font-size: 1.2rem;">
+                            ✅ Рекорд сохранён!
+                        </p>
+                    }
+
+                    <!-- Таблица лидеров -->
+                    @if (isLoadingLeaderboard)
+                    {
+                        <p style="color: #aaa; margin: 20px 0;">Загрузка лидерборда...</p>
+                    }
+                    else if (leaderboardEntries?.Any() == true)
+                    {
+                        <div style="margin-top: 30px; text-align: left;">
+                            <h4 style="color: gold; margin-bottom: 15px; text-align: center;">🏆 Топ игроков</h4>
+                            <table style="width: 100%; color: white; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid #555;">
+                                        <th style="padding: 10px; text-align: left;">#</th>
+                                        <th style="padding: 10px; text-align: left;">Игрок</th>
+                                        <th style="padding: 10px; text-align: center;">Волна</th>
+                                        <th style="padding: 10px; text-align: right;">Дата</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in leaderboardEntries)
+                                    {
+                                        <tr style="border-bottom: 1px solid #333;">
+                                            <td style="padding: 10px; color: #aaa;">@entry.Id</td>
+                                            <td style="padding: 10px; font-weight: bold;">@entry.PlayerName</td>
+                                            <td style="padding: 10px; text-align: center; color: gold; font-size: 1.2rem;">@entry.MaxWave</td>
+                                            <td style="padding: 10px; text-align: right; color: #888; font-size: 0.9rem;">
+                                                @entry.AchievedAt.ToString("dd.MM.yyyy HH:mm")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
                     <button @onclick="RestartGame"
-                            style="padding: 16px 70px; font-size: 1.6rem; background: #4CAF50; color: white;
-                                       border: none; border-radius: 10px; cursor: pointer; transition: all 0.25s; box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
+                            style="margin-top: 30px; padding: 16px 70px; font-size: 1.6rem; background: #2196F3; color: white;
+                                   border: none; border-radius: 10px; cursor: pointer; transition: all 0.25s;
+                                   box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
                         Начать заново
                     </button>
                 </div>
@@ -47,12 +115,20 @@
 </div>
 
 @code {
+
+    private int HighScoreWave { get; set; } = 0;
+    private const string HighScoreKey = "TowerDefenseHighScore";
     private bool WaveInProgress { get; set; } = false;
     private ElementReference canvasRef;
     private GameState game = new();
     private string? SelectedTower;
     private bool gameRunning = true;
     private DotNetObjectReference<Game>? dotNetRef;
+    // Поля для лидерборда
+    private string playerName = "";
+    private bool scoreSubmitted = false;
+    private List<LeaderboardEntry>? leaderboardEntries;
+    private bool isLoadingLeaderboard = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -61,6 +137,49 @@
             dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("initCanvas", canvasRef, dotNetRef);
             _ = GameLoop();
+
+            // Загрузка рекорда из localStorage
+            var saved = await JS.InvokeAsync<string>("localStorage.getItem", HighScoreKey);
+            if (!string.IsNullOrEmpty(saved) && int.TryParse(saved, out var score))
+                HighScoreWave = score;
+
+            // Загрузка лидерборда
+            await LoadLeaderboard();
+        }
+    }
+
+    private async Task LoadLeaderboard()
+    {
+        isLoadingLeaderboard = true;
+        StateHasChanged();
+
+        try
+        {
+            leaderboardEntries = await LeaderboardService.GetTopScoresAsync(10);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading leaderboard: {ex.Message}");
+        }
+
+        isLoadingLeaderboard = false;
+        StateHasChanged();
+    }
+
+    private async Task SubmitScore()
+    {
+        if (string.IsNullOrWhiteSpace(playerName))
+            return;
+
+        try
+        {
+            await LeaderboardService.SubmitScoreAsync(playerName.Trim(), game.Wave);
+            scoreSubmitted = true;
+            await LoadLeaderboard();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error submitting score: {ex.Message}");
         }
     }
 
@@ -145,15 +264,26 @@
         StateHasChanged();
     }
 
-    private void RestartGame()
+    private async Task RestartGame()
     {
+        if (game.Wave > HighScoreWave)
+        {
+            HighScoreWave = game.Wave;
+            await JS.InvokeVoidAsync("localStorage.setItem", HighScoreKey, HighScoreWave.ToString());
+        }
+
         game = new GameState();
         gameRunning = true;
         SelectedTower = null;
+        WaveInProgress = false;
+
         dotNetRef?.Dispose();
         dotNetRef = DotNetObjectReference.Create(this);
-        _ = JS.InvokeVoidAsync("initCanvas", canvasRef, dotNetRef);
+
+        await JS.InvokeVoidAsync("initCanvas", canvasRef, dotNetRef);
+
         _ = GameLoop();
+
         StateHasChanged();
     }
 

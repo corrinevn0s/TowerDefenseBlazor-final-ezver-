@@ -1,0 +1,6 @@
+@TowerDefenseBlazor.API_HostAddress = http://localhost:5267
+
+GET {{TowerDefenseBlazor.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
