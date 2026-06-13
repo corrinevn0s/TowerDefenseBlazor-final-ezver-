@@ -12,7 +12,11 @@ public class GameState
     public int Wave { get; set; } = 1;
     public float SpawnTimer { get; set; } = 0;
 
-    // Фиксированный путь (можно изменить)
+    // Очередь для постепенного спавна
+    private readonly Queue<Enemy> _spawnQueue = new();
+    // Интервал между спавном отдельных врагов (в секундах)
+    private const float SpawnInterval = 1.0f;
+
     public readonly Vector2[] Path = {
         new(0, 300), new(200, 300), new(200, 100), new(500, 100),
         new(500, 400), new(700, 400), new(700, 250), new(900, 250)
@@ -22,24 +26,49 @@ public class GameState
 
     public void SpawnWave()
     {
-        for (int i = 0; i < Wave * 3; i++)
+        _spawnQueue.Clear();
+        int enemiesCount = Wave * 3;
+
+        for (int i = 0; i < enemiesCount; i++)
         {
             var type = _rand.Next(3);
-            Enemy e = type == 0 ? new FastEnemy(-30, 300) :
-                      type == 1 ? new NormalEnemy(-30, 300) : new TankEnemy(-30, 300);
-            Enemies.Add(e);
+            Enemy e = type switch
+            {
+                0 => new FastEnemy(-30, 300),
+                1 => new NormalEnemy(-30, 300),
+                _ => new TankEnemy(-30, 300)
+            };
+
+            // Рассчитываем ХП с учетом волны
+            int calculatedHp = type switch
+            {
+                0 => 15 + (Wave * 3),
+                1 => 40 + (Wave * 8),
+                _ => 100 + (Wave * 20)
+            };
+
+            // Присваиваем оба значения, чтобы полоска была заполненной при спавне
+            e.HP = calculatedHp;
+            e.MaxHP = calculatedHp;
+
+            _spawnQueue.Enqueue(e);
         }
+
+        SpawnTimer = 0;
         Wave++;
     }
 
     public void Update(float deltaTime)
     {
-        // Спавн
-        SpawnTimer -= deltaTime;
-        if (SpawnTimer <= 0 && Enemies.Count < Wave * 3)
+        // Постепенный спавн из очереди
+        if (_spawnQueue.Count > 0)
         {
-            SpawnTimer = 0.8f;
-            // спавним по одному (для простоты)
+            SpawnTimer -= deltaTime;
+            if (SpawnTimer <= 0)
+            {
+                Enemies.Add(_spawnQueue.Dequeue());
+                SpawnTimer = SpawnInterval; // Ждем следующего
+            }
         }
 
         // Движение врагов
@@ -79,7 +108,8 @@ public class GameState
 
             if (target != null)
             {
-                Projectiles.Add(new Projectile(tower.X, tower.Y, target.X, target.Y, tower.Damage, tower.Color));
+                // Передаем саму цель (target) вместо координат
+                Projectiles.Add(new Projectile(tower.X, tower.Y, target, tower.Damage, tower.Color));
                 tower.CurrentCooldown = tower.Cooldown;
             }
         }
@@ -87,17 +117,25 @@ public class GameState
         // Движение снарядов + попадание
         foreach (var p in Projectiles.ToList())
         {
-            var dx = p.TargetX - p.X;
-            var dy = p.TargetY - p.Y;
-            var dist = MathF.Sqrt(dx * dx + dy * dy);
-            if (dist < 10)
+            // Если враг уже мертв или ушел, пока летел снаряд, просто удаляем снаряд
+            if (p.Target == null || !Enemies.Contains(p.Target))
             {
-                var hit = Enemies.FirstOrDefault(e =>
-                    MathF.Abs(e.X - p.TargetX) < 20 && MathF.Abs(e.Y - p.TargetY) < 20);
-                if (hit != null) hit.HP -= p.Damage;
                 Projectiles.Remove(p);
                 continue;
             }
+
+            // Летим строго за текущей позицией врага
+            var dx = p.Target.X - p.X;
+            var dy = p.Target.Y - p.Y;
+            var dist = MathF.Sqrt(dx * dx + dy * dy);
+
+            if (dist < 12) // Попадание
+            {
+                p.Target.HP -= p.Damage;
+                Projectiles.Remove(p);
+                continue;
+            }
+
             p.X += (dx / dist) * p.Speed;
             p.Y += (dy / dist) * p.Speed;
         }
@@ -109,4 +147,7 @@ public class GameState
             Enemies.Remove(e);
         }
     }
+
+    // Вспомогательное свойство для Game.razor, чтобы кнопка "Начать волну" блокировалась правильно
+    public bool IsWaveActive => _spawnQueue.Count > 0 || Enemies.Count > 0;
 }

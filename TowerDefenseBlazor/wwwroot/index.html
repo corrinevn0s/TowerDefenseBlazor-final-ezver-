@@ -30,40 +30,103 @@
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Путь (серый)
+        // Красивая стилизованная дорога (основание)
         ctx.beginPath();
         ctx.moveTo(path[0].x, path[0].y);
         for (let i = 1; i < path.length; i++) {
             ctx.lineTo(path[i].x, path[i].y);
         }
-        ctx.strokeStyle = 'gray';
+        ctx.strokeStyle = '#2c3e50'; // Темно-серый сланец
         ctx.lineWidth = 40;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.stroke();
 
-        // Враги
+        // Внутренняя разметка дороги (эффект протоптанной тропинки)
+        ctx.strokeStyle = '#34495e';
+        ctx.lineWidth = 32;
+        ctx.stroke();
+
+        // 1. РИСОВАНИЕ ПИКСЕЛЬНЫХ ВРАГОВ
         enemies.forEach(e => {
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, 15, 0, 2 * Math.PI);
             ctx.fillStyle = e.color;
-            ctx.fill();
+
+            if (e.color === 'orange') { // FastEnemy - "Пиксельный Слизень"
+                ctx.fillRect(e.x - 12, e.y - 8, 24, 16);
+                ctx.fillStyle = 'black';
+                ctx.fillRect(e.x - 6, e.y - 4, 4, 4);  // Глаз 1
+                ctx.fillRect(e.x + 2, e.y - 4, 4, 4);  // Глаз 2
+            }
+            else if (e.color === 'red') { // NormalEnemy - "Пиксельный Орк"
+                ctx.fillRect(e.x - 12, e.y - 12, 24, 24); // Тело
+                ctx.fillStyle = '#f39c12';
+                ctx.fillRect(e.x - 12, e.y - 16, 24, 4);  // Шлем
+                ctx.fillStyle = 'white';
+                ctx.fillRect(e.x - 6, e.y - 4, 4, 4);     // Глаза
+                ctx.fillRect(e.x + 2, e.y - 4, 4, 4);
+            }
+            else if (e.color === 'purple') { // TankEnemy - "Пиксельный Голем"
+                ctx.fillRect(e.x - 16, e.y - 16, 32, 32); // Большое тело
+                ctx.fillStyle = '#9b59b6';
+                ctx.fillRect(e.x - 12, e.y - 12, 24, 4);  // Наплечники
+                ctx.fillStyle = '#00ffcc';                // Светящиеся глаза
+                ctx.fillRect(e.x - 8, e.y, 4, 4);
+                ctx.fillRect(e.x + 4, e.y, 4, 4);
+            }
+
+            // Рассчитываем процент оставшегося здоровья (от 0 до 1)
+            let hpPercent = Math.max(0, e.hp / e.maxHp);
+            let barWidth = 24; // Максимальная ширина полоски в пикселях
+
+            // Серый фон полоски (показывает «серый» урон)
+            ctx.fillStyle = '#7f8c8d';
+            ctx.fillRect(e.x - barWidth / 2, e.y - 22, barWidth, 4);
+
+            // Цветная полоска здоровья (зелёная, если больше половины, иначе красная)
+            ctx.fillStyle = hpPercent > 0.5 ? '#2ecc71' : '#e74c3c';
+            ctx.fillRect(e.x - barWidth / 2, e.y - 22, barWidth * hpPercent, 4);
         });
 
-        // Башни
+        // 2. РИСОВАНИЕ ПИКСЕЛЬНЫХ БАШЕН
         towers.forEach(t => {
+            // Основание башни (каменная кладка, общая для всех)
+            ctx.fillStyle = '#7f8c8d';
+            ctx.fillRect(t.x - 16, t.y - 16, 32, 32);
+
+            ctx.fillStyle = '#95a5a6';
+            ctx.fillRect(t.x - 12, t.y - 12, 8, 8); // Кирпичный узор
+            ctx.fillRect(t.x + 4, t.y + 4, 8, 8);
+
+            // Верхушка башни в зависимости от её типа (определяем по цвету)
             ctx.fillStyle = t.color;
-            ctx.fillRect(t.x - 20, t.y - 20, 40, 40);
+            if (t.color === 'brown') { // Лучник (BowTower)
+                ctx.fillRect(t.x - 8, t.y - 22, 16, 12);
+                ctx.fillStyle = '#f1c40f'; // Золотой лук на крыше
+                ctx.fillRect(t.x - 2, t.y - 26, 4, 4);
+            }
+            else if (t.color === 'orange') { // Маг Огня (FireTower)
+                ctx.fillRect(t.x - 10, t.y - 24, 20, 14);
+                ctx.fillStyle = '#e74c3c'; // Пылающий кристалл
+                ctx.fillRect(t.x - 4, t.y - 30, 8, 8);
+            }
+            else if (t.color === 'green') { // Алхимик / Яд (PoisonTower)
+                ctx.fillRect(t.x - 10, t.y - 20, 20, 10);
+                ctx.fillStyle = '#2ecc71'; // Перегонная колба с ядом
+                ctx.fillRect(t.x - 6, t.y - 28, 12, 8);
+            }
         });
 
-        // Снаряды
-        ctx.fillStyle = 'yellow';
+        // 3. СНАРЯДЫ
         projectiles.forEach(p => {
-            ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+            // Подкрашиваем снаряды под цвет выпустившей их башни
+            ctx.fillStyle = p.color === 'brown' ? '#f1c40f' : (p.color === 'orange' ? '#e67e22' : '#2ecc71');
+            ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
         });
 
-        // Можно добавить текст на canvas, если хочешь
+        // Интерфейс поверх холста
         ctx.fillStyle = 'white';
-        ctx.font = '16px Arial';
-        ctx.fillText(`Gold: ${gold} | Lives: ${lives} | Wave: ${wave}`, 10, 30);
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillText(`GOLD: $${gold}  |  LIVES: ${lives}  |  WAVE: ${wave - 1}`, 15, 30);
     };
 </script>
 <body>

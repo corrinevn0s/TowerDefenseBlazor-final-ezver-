@@ -24,16 +24,16 @@
             <button disabled="@(game.Lives <= 0)" @onclick="() => SelectedTower = nameof(BowTower)">Лук (50$)</button>
             <button disabled="@(game.Lives <= 0)" @onclick="() => SelectedTower = nameof(FireTower)">Огонь (100$)</button>
             <button disabled="@(game.Lives <= 0)" @onclick="() => SelectedTower = nameof(PoisonTower)">Яд (80$)</button>
-            <button disabled="@(game.Lives <= 0 || WaveInProgress || game.Enemies.Any())"@onclick="StartNewWave">Начать волну</button>
+            <button disabled="@(game.Lives <= 0 || WaveInProgress || game.IsWaveActive)" @onclick="StartNewWave">Начать волну</button>
         </div>
 
         @if (game.Lives <= 0)
         {
             <div style="position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-                        z-index: 1000; pointer-events: auto; background: rgba(0,0,0,0.6);">
+                            z-index: 1000; pointer-events: auto; background: rgba(0,0,0,0.6);">
                 <div style="background: rgba(0,0,0,0.92); color: #ff4444; padding: 50px 70px; border-radius: 16px;
-                            text-align: center; border: 3px solid #ff4444; min-width: 420px; max-width: 600px;
-                            box-shadow: 0 0 40px rgba(255,68,68,0.6);">
+                                text-align: center; border: 3px solid #ff4444; min-width: 420px; max-width: 600px;
+                                box-shadow: 0 0 40px rgba(255,68,68,0.6);">
                     <h2 style="margin: 0 0 24px 0; color: white; font-size: 2.8rem;">Игра окончена</h2>
 
                     <p style="margin: 0 0 16px 0; font-size: 1.2rem; color: gold;">
@@ -41,7 +41,7 @@
                     </p>
 
                     <p style="margin: 0 0 20px 0; color: #ffcc00; font-size: 1.8rem;">
-                        Достигнутая волна: @game.Wave
+                        Достигнутая волна: @(game.Wave - 1)
                     </p>
 
                     @if (!scoreSubmitted)
@@ -52,10 +52,10 @@
                                    style="padding: 12px; width: 280px; font-size: 1.1rem; border-radius: 6px; border: 2px solid #555;" />
                             <br />
                             <button @onclick="SubmitScore"
-                                disabled="@string.IsNullOrWhiteSpace(playerName)"
-                                style="margin-top: 15px; padding: 12px 40px; font-size: 1.2rem;
-                                    background: #4CAF50; color: white; border: none;
-                                    border-radius: 8px; cursor: pointer;">
+                                    disabled="@string.IsNullOrWhiteSpace(playerName)"
+                                    style="margin-top: 15px; padding: 12px 40px; font-size: 1.2rem;
+                                            background: #4CAF50; color: white; border: none;
+                                            border-radius: 8px; cursor: pointer;">
                                 Отправить в лидерборд
                             </button>
                         </div>
@@ -67,7 +67,6 @@
                         </p>
                     }
 
-                    <!-- Таблица лидеров -->
                     @if (isLoadingLeaderboard)
                     {
                         <p style="color: #aaa; margin: 20px 0;">Загрузка лидерборда...</p>
@@ -104,8 +103,8 @@
 
                     <button @onclick="RestartGame"
                             style="margin-top: 30px; padding: 16px 70px; font-size: 1.6rem; background: #2196F3; color: white;
-                                   border: none; border-radius: 10px; cursor: pointer; transition: all 0.25s;
-                                   box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
+                                       border: none; border-radius: 10px; cursor: pointer; transition: all 0.25s;
+                                       box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
                         Начать заново
                     </button>
                 </div>
@@ -115,7 +114,6 @@
 </div>
 
 @code {
-
     private int HighScoreWave { get; set; } = 0;
     private const string HighScoreKey = "TowerDefenseHighScore";
     private bool WaveInProgress { get; set; } = false;
@@ -124,6 +122,7 @@
     private string? SelectedTower;
     private bool gameRunning = true;
     private DotNetObjectReference<Game>? dotNetRef;
+
     // Поля для лидерборда
     private string playerName = "";
     private bool scoreSubmitted = false;
@@ -173,7 +172,8 @@
 
         try
         {
-            await LeaderboardService.SubmitScoreAsync(playerName.Trim(), game.Wave);
+            // Сохраняем завершенную волну (текущая минус 1)
+            await LeaderboardService.SubmitScoreAsync(playerName.Trim(), game.Wave - 1);
             scoreSubmitted = true;
             await LoadLeaderboard();
         }
@@ -197,8 +197,8 @@
                 break;
             }
 
-            // Проверка завершения волны
-            if (WaveInProgress && !game.Enemies.Any())
+            // Проверка завершения волны (с учетом очереди спавна)
+            if (WaveInProgress && !game.IsWaveActive)
             {
                 WaveInProgress = false;
                 StateHasChanged();
@@ -213,9 +213,10 @@
     {
         await JS.InvokeVoidAsync("drawGame", canvasRef,
             game.Path.Select(p => new { x = p.X, y = p.Y }).ToArray(),
-            game.Enemies.Select(e => new { x = e.X, y = e.Y, color = e.Color }).ToArray(),
+            // Передаем hp и maxHp на фронтенд
+            game.Enemies.Select(e => new { x = e.X, y = e.Y, color = e.Color, hp = e.HP, maxHp = e.MaxHP }).ToArray(),
             game.Towers.Select(t => new { x = t.X, y = t.Y, color = t.Color }).ToArray(),
-            game.Projectiles.Select(p => new { x = p.X, y = p.Y }).ToArray(),
+            game.Projectiles.Select(p => new { x = p.X, y = p.Y, color = p.Color }).ToArray(),
             game.Gold, game.Lives, game.Wave);
     }
 
@@ -227,17 +228,39 @@
         float mx = (float)e.ClientX - (float)rect.Left;
         float my = (float)e.ClientY - (float)rect.Top;
 
+        // Проверка клика по дороге (ширина дороги 40px + 20px запас под радиус башни = 40px радиус запрета)
+        float roadRadius = 40f;
         bool onPath = false;
+
         for (int i = 0; i < game.Path.Length - 1; i++)
         {
-            var p = game.Path[i];
-            if (MathF.Abs(mx - p.X) < 60 && MathF.Abs(my - p.Y) < 60)
+            var p1 = game.Path[i];
+            var p2 = game.Path[i + 1];
+
+            // Границы прямоугольника вокруг конкретного отрезка дороги
+            float minX = MathF.Min(p1.X, p2.X) - roadRadius;
+            float maxX = MathF.Max(p1.X, p2.X) + roadRadius;
+            float minY = MathF.Min(p1.Y, p2.Y) - roadRadius;
+            float maxY = MathF.Max(p1.Y, p2.Y) + roadRadius;
+
+            if (mx >= minX && mx <= maxX && my >= minY && my <= maxY)
             {
-                onPath = true;
-                break;
+                // Проверяем перпендикулярное расстояние до осевой линии дороги
+                if (p1.X == p2.X) // Вертикальный отрезок
+                {
+                    if (MathF.Abs(mx - p1.X) < roadRadius) { onPath = true; break; }
+                }
+                else if (p1.Y == p2.Y) // Горизонтальный отрезок
+                {
+                    if (MathF.Abs(my - p1.Y) < roadRadius) { onPath = true; break; }
+                }
             }
         }
-        if (onPath) return;
+
+        if (onPath) return; // Не строим на дороге
+
+        // Не строим башни друг на друге (минимальная дистанция 30px)
+        if (game.Towers.Any(t => MathF.Sqrt(MathF.Pow(t.X - mx, 2) + MathF.Pow(t.Y - my, 2)) < 30)) return;
 
         Tower? newTower = SelectedTower switch
         {
@@ -257,7 +280,7 @@
 
     private void StartNewWave()
     {
-        if (WaveInProgress || game.Enemies.Any()) return;
+        if (WaveInProgress || game.IsWaveActive) return;
 
         WaveInProgress = true;
         game.SpawnWave();
@@ -266,9 +289,9 @@
 
     private async Task RestartGame()
     {
-        if (game.Wave > HighScoreWave)
+        if ((game.Wave - 1) > HighScoreWave)
         {
-            HighScoreWave = game.Wave;
+            HighScoreWave = game.Wave - 1;
             await JS.InvokeVoidAsync("localStorage.setItem", HighScoreKey, HighScoreWave.ToString());
         }
 
@@ -276,12 +299,12 @@
         gameRunning = true;
         SelectedTower = null;
         WaveInProgress = false;
+        scoreSubmitted = false;
 
         dotNetRef?.Dispose();
         dotNetRef = DotNetObjectReference.Create(this);
 
         await JS.InvokeVoidAsync("initCanvas", canvasRef, dotNetRef);
-
         _ = GameLoop();
 
         StateHasChanged();
